@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -90,7 +91,6 @@ fun MainScreen(vm: PhotoViewModel) {
     val pendingPhotos by vm.pendingPhotos.collectAsStateWithLifecycle()
     val pendingTimes by vm.pending.collectAsStateWithLifecycle()
     val locked by vm.locked.collectAsStateWithLifecycle()
-    val now by vm.now.collectAsStateWithLifecycle()
 
     var showPending by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
@@ -115,7 +115,6 @@ fun MainScreen(vm: PhotoViewModel) {
                 PendingScreen(
                     items = pendingPhotos,
                     times = pendingTimes,
-                    now = now,
                     onBack = { showPending = false },
                     onRestore = { vm.restore(listOf(it)) },
                     onRestoreAll = { vm.restoreAll() }
@@ -291,7 +290,6 @@ fun PhotoPage(
 fun PendingScreen(
     items: List<Photo>,
     times: Map<Long, Long>,
-    now: Long,
     onBack: () -> Unit,
     onRestore: (Long) -> Unit,
     onRestoreAll: () -> Unit
@@ -322,25 +320,51 @@ fun PendingScreen(
         } else {
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
                 items(items, key = { it.id }) { p ->
-                    val left = (WAIT_MS - (now - (times[p.id] ?: now))).coerceAtLeast(0) / 1000
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        AsyncImage(
-                            model = p.uri, contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(72.dp).clip(RoundedCornerShape(8.dp))
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Se borra en", fontSize = 12.sp, color = Color.LightGray)
-                            Text("%d:%02d".format(left / 60, left % 60), fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Button(onClick = { onRestore(p.id) }) { Text("Restaurar") }
-                    }
+                    PendingRow(p, times[p.id] ?: System.currentTimeMillis(), onRestore)
                 }
             }
         }
+    }
+}
+
+@Composable
+fun PendingRow(p: Photo, sentAt: Long, onRestore: (Long) -> Unit) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(sentAt) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(500)
+        }
+    }
+    val leftMs = (WAIT_MS - (now - sentAt)).coerceIn(0L, WAIT_MS)
+    val leftSec = (leftMs + 999) / 1000
+    val progress = leftMs.toFloat() / WAIT_MS
+
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AsyncImage(
+            model = p.uri, contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp))
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("⏳ Tiempo restante", fontSize = 12.sp, color = Color.LightGray)
+            Text(
+                "%d:%02d".format(leftSec / 60, leftSec % 60),
+                fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                color = if (leftSec <= 60) Color(0xFFFF5252) else Color.White
+            )
+            Spacer(Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth(),
+                color = if (leftSec <= 60) Color(0xFFFF5252) else Color(0xFF42A5F5)
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Button(onClick = { onRestore(p.id) }) { Text("Restaurar") }
     }
 }
